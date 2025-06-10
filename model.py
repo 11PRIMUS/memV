@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict ,Optional
 import psutil
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -60,3 +60,79 @@ def get_status_color(self) -> str:
         system_status.CRITICAL: "#e74c3c"    
         }
     return status_colors.get(self.status, "#95a5a6")
+
+class memory_stats(BaseModel):
+    avg_usage:float =Field(..., description="avg memory usage %")
+    max_usage:float=Field(..., description="max_memory usage 5")
+    min_usage:float=Field(..., description="min memory usage%")
+    peak_time:str =Field(..., description="time of peek")
+    low_time:str =Field(..., description="time of lowest use")
+    # add ons
+    # usage_trend: Optional[str] = Field(None, description="usage trend: increasing/stable/decreasing")
+    # stability_score: Optional[float] = Field(None, ge=0, le=100, description="stability score")
+    # efficiency_grade: Optional[str] = Field(None, description="grade")
+
+class alert_config(BaseModel):
+    warning_threshold:float =Field(75.0, ge=0, le=100, description="warning ")
+    critical_threshold:float=Field(90.0, ge=0, le=100, description="critical threshold %")
+    notification_interval:int=Field(300, ge=60, description="min sec b/w notifaction")
+    
+    def get_status_for_usage(self, usage_percent: float) -> system_status
+        if usage_percent>= self.critical_threshold:
+            return system_status.CRITICAL
+        elif usage_percent>= self.warning_threshold:
+            return system_status.WARNING
+        elif usage_percent>=60:
+            return system_status.GOOD
+        else:
+            return system_status.OPTIMAL
+
+class history_record(BaseModel):
+    timestamp:str
+    memory_percent:float
+    swap_percent:float
+    used_memory:int
+    available_memory:int
+    top_processes:List[process_info]
+    
+    class Config:
+        #custom filed from db
+        populate_by_name = True
+
+class system_info(BaseModel):
+    hostname:Optional[str] =None
+    platform:Optional[str] =None
+    cpu_count:Optional[int] =None
+    boot_time:Optional[str] =None
+    uptime_seconds:Optional[int]=None
+    
+    @property
+    def uptime_formatted(self) -> str:
+        if not self.uptime_seconds:
+            return "unknown"
+        
+        days=self.uptime_seconds // 86400
+        hours=(self.uptime_seconds % 86400) // 3600
+        minutes=(self.uptime_seconds % 3600) // 60
+        
+        return f"{days}d {hours}h {minutes}m"
+
+class DatabaseStats(BaseModel):
+    total_records:int
+    oldest_record:Optional[str]=None
+    newest_record:Optional[str]=None
+    database_size_mb: float
+    
+class monitor_config(BaseModel):
+    collection_interval:int = Field(60, ge=10, description="collection interval")
+    retention_days:int=Field(7, ge=1, description="data retention period(days)")
+    max_processes:int=Field(10, ge=5, description="max process to track")
+    
+    alerts:alert_config=Field(default_factory=alert_config) #alert setting
+    
+    auto_refresh_interval:int = Field(30, ge=10, description="dash auto refresh(sec)")
+    chart_animation: bool=Field(True, description="chart animation")
+    
+    class Config:
+        env_prefix="MEMORY_MONITOR_"
+        case_sensitive=False
