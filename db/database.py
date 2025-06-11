@@ -72,3 +72,83 @@ class db_manager:
         
         conn.commit()
         conn.close()
+
+    @asynccontextmanager
+    async def get_connection(self):
+        conn=None
+        try:
+            conn=sqlite3.connect(self.db_path,timeout=30.0)
+            conn.row_factory = sqlite3.Row  #column access by row
+            yield conn
+        except Exception as e:
+            logger.error(f"db error: {e}")
+            raise
+        finally:
+            if conn
+                conn.close()
+
+    async def save_snap(self, snapshot:memory_snap) -> bool:
+        try:
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('''
+                    INSERT INTO memory_snapshots 
+                    (timestamp, total_memory, available_memory, used_memory, memory_percent,
+                     swap_total, swap_used, swap_percent, process_count, top_processes, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    snapshot.timestamp,
+                    snapshot.total_memory,
+                    snapshot.available_memory,
+                    snapshot.used_memory,
+                    snapshot.memory_percent,
+                    snapshot.swap_total,
+                    snapshot.swap_used,
+                    snapshot.swap_percent,
+                    snapshot.process_count,
+                    json.dumps([p.dict() for p in snapshot.top_processes]),
+                    snapshot.status.value
+                ))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"failed to save:{e}")
+            return False
+        
+    async def get_history(self,hours:int=24) -> List[Dict]: #historical data
+        try:
+            start_time=(datetime.now()-timedelta(hours=hours)).isoformat()
+            
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('''
+                    SELECT timestamp, memory_percent, swap_percent, used_memory, 
+                           available_memory, top_processes, status
+                    FROM memory_snapshots 
+                    WHERE timestamp >= ? 
+                    ORDER BY timestamp ASC
+                ''', (start_time,))
+                
+                rows=cursor.fetchall()
+                
+                history=[]
+                for row in rows:
+                    try:
+                        top_processes=json.loads(row['top_processes']) if row['top_processes'] else []
+                    except json.JSONDecodeError:
+                        top_processes=[]
+                    
+                    history.append({
+                        'timestamp':row['timestamp'],
+                        'memory_percent':row['memory_percent'],
+                        'swap_percent':row['swap_percent'],
+                        'used_memory':row['used_memory'],
+                        'available_memory': row['availble_memory'],
+                        'top_processes':top_processes,
+                        'status': row['status']
+                    })
+                
+                return history
+        except Exception as e:
+            logger.error(f"failed to get history: {e}")
+            return []
