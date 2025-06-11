@@ -223,3 +223,61 @@ class db_manager:
             return "decreasing"
         else:
             return "stable"
+
+    def calc_stability(self,values:List[float])->float:
+        if len(values) < 2:
+            return 100.0
+        
+        avg=sum(values)/len(values)
+        variance=sum((x-avg)**2 for x in values)/len(values)
+        std_dev=variance ** 0.5
+        
+        #sra
+        max_std=30.0  # max reasonable std deviation
+        stability=max(0,100-(std_dev / max_std * 100))
+        
+        return round(stability, 1)
+    
+    def calc_efficiency_grade(self, avg_usage: float,stability:float)->str:
+        #combining average usage and stability into a score
+        usage_score= max(0,100-avg_usage)  #lower usage is better
+        combined_score=(usage_score *0.6) +(stability * 0.4)
+        
+        if combined_score >=90:
+            return "A+"
+        elif combined_score>=85:
+            return "A"
+        elif combined_score>=80:
+            return "A-"
+        elif combined_score>=75:
+            return "B+"
+        elif combined_score>=70:
+            return "B"
+        elif combined_score>=65:
+            return "B-"
+        elif combined_score>=60:
+            return "C+"
+        elif combined_score>=55:
+            return "C"
+        elif combined_score >=50:
+            return "C-"
+        else:
+            return "D"
+    
+    async def cleanup_old(self, retention_days: int=7):     #remove old data
+        try:
+            cutoff_date=(datetime.now()-timedelta(days=retention_days)).isoformat()
+            
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('DELETE FROM memory_snapshots WHERE timestamp < ?', (cutoff_date,))
+                cursor.execute('DELETE FROM alert_log WHERE timestamp < ?', (cutoff_date,))
+                
+                deleted_snapshots = cursor.rowcount
+                conn.commit()
+                
+                if deleted_snapshots > 0:
+                    logger.info(f"cleaned {deleted_snapshots} old records")
+                    
+        except Exception as e:
+            logger.error(f"failed to clean {e}")
