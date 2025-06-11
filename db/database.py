@@ -281,3 +281,55 @@ class db_manager:
                     
         except Exception as e:
             logger.error(f"failed to clean {e}")
+
+    async def log_alert(self,alert_type:str,message:str,memory_percent:float):
+        try:
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('''
+                    INSERT INTO alert_log (timestamp, alert_type, message, memory_percent)
+                    VALUES (?, ?, ?, ?)
+                ''', (datetime.now().isoformat(), alert_type,message, memory_percent))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"failed log alert:{e}")
+    
+    async def get_database_stats(self)-> DatabaseStats:
+        try:
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                
+                #record count
+                cursor.execute('SELECT COUNT(*) FROM memory_snapshots')
+                total_records=cursor.fetchone()[0]
+                
+                #oldest and newest records
+                cursor.execute('SELECT MIN(timestamp), MAX(timestamp) FROM memory_snapshots')
+                oldest,newest=cursor.fetchone()
+                
+                #getdatabase file size
+                import os
+                db_size_bytes=os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+                db_size_mb=round(db_size_bytes/(1024 * 1024), 2)
+                
+                return DatabaseStats(
+                    total_records=total_records,
+                    oldest_record=oldest,
+                    newest_record=newest,
+                    database_size_mb=db_size_mb
+                )
+        except Exception as e:
+            logger.error(f"failed db stats: {e}")
+            return DatabaseStats(total_records=0, database_size_mb=0.0)
+    
+    async def check_connection(self) ->bool:
+        try:
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('SELECT 1')
+                return True
+        except Exception:
+            return False
+    
+    async def close(self): #close db
+        logger.info("db manager closed")
