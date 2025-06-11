@@ -84,7 +84,7 @@ class db_manager:
             logger.error(f"db error: {e}")
             raise
         finally:
-            if conn
+            if conn:
                 conn.close()
 
     async def save_snap(self, snapshot:memory_snap) -> bool:
@@ -152,3 +152,74 @@ class db_manager:
         except Exception as e:
             logger.error(f"failed to get history: {e}")
             return []
+    
+    async def get_stats(self,hours:int=24)-> memory_stats:  # memory usage stats
+        try:
+            start_time=(datetime.now()-timedelta(hours=hours)).isoformat()
+            
+            async with self.get_connection() as conn:
+                cursor=conn.cursor()
+                cursor.execute('''
+                    SELECT memory_percent, timestamp
+                    FROM memory_snapshots 
+                    WHERE timestamp >= ? 
+                    ORDER BY timestamp ASC
+                ''', (start_time,))
+                
+                rows=cursor.fetchall()
+                
+                if not rows:
+                    return memory_stats(
+                        avg_usage=0,max_usage=0,min_usage=0,
+                        peak_time="",low_time="",
+                        usage_trend="stable",stability_score=100.0,
+                        efficiency_grade="A"
+                    )
+                
+                usage_values=[row['memory_percent'] for row in rows]
+                max_usage= max(usage_values)
+                min_usage= min(usage_values)
+                avg_usage=sum(usage_values)/len(usage_values)
+                
+                peak_time=next(row['timestamp'] for row in rows if row['memory_percent']==max_usage)
+                low_time=next(row['timestamp'] for row in rows if row['memory_percent']==min_usage)
+                
+                trend =self._calculate_trend(usage_values)
+                stability = self._calculate_stability(usage_values)
+                grade=self._calculate_efficiency_grade(avg_usage,stability)
+                
+                return memory_stats(
+                    avg_usage=round(avg_usage,2),
+                    max_usage=max_usage,
+                    min_usage=min_usage,
+                    peak_time=peak_time,
+                    low_time=low_time,
+                    usage_trend=trend,
+                    stability_score=stability,
+                    efficiency_grade=grade
+                )
+        except Exception as e:
+            logger.error(f"stats failed: {e}")
+            return memory_stats(
+                avg_usage=0,max_usage=0, min_usage=0,
+                peak_time="",low_time=""
+            )
+    
+    def calculate_trend(self,values: List[float]) ->str:
+        if len(values) < 5:
+            return "stable"
+        
+        recent=values[-5:]
+        earlier=values[-10:-5] if len(values) >= 10 else values[:-5]
+        
+        recent_avg=sum(recent)/len(recent)
+        earlier_avg=sum(earlier)/len(earlier)
+        
+        diff=recent_avg-earlier_avg
+        
+        if diff > 5:
+            return "increasing"
+        elif diff < -5:
+            return "decreasing"
+        else:
+            return "stable"
